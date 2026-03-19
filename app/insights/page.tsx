@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { InsightsCharts } from '@/components/InsightsCharts'
+import { getHabits, getLogs, buildDateRange } from '@/lib/storage'
 
 interface DailyData {
   date: string
@@ -19,28 +20,49 @@ interface StreakData {
 export default function InsightsPage() {
   const [daily, setDaily] = useState<DailyData[]>([])
   const [streaks, setStreaks] = useState<StreakData[]>([])
-  const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    fetch('/api/insights?days=14')
-      .then(r => r.json())
-      .then(data => {
-        setDaily(data.daily)
-        setStreaks(data.streaks)
-        setLoading(false)
-      })
+    const habits = getHabits().filter(h => h.active)
+    const allLogs = getLogs()
+    const dates = buildDateRange(14)
+
+    const morningHabits = habits.filter(h => h.period === 'MORNING')
+    const eveningHabits = habits.filter(h => h.period === 'EVENING')
+
+    const dailyData: DailyData[] = dates.map(date => {
+      const dayLogs = allLogs.filter(l => l.date === date && l.completed)
+      const morningDone = dayLogs.filter(l => morningHabits.some(h => h.id === l.habitId)).length
+      const eveningDone = dayLogs.filter(l => eveningHabits.some(h => h.id === l.habitId)).length
+      return {
+        date,
+        morningRate: morningHabits.length > 0 ? Math.round((morningDone / morningHabits.length) * 100) : 0,
+        eveningRate: eveningHabits.length > 0 ? Math.round((eveningDone / eveningHabits.length) * 100) : 0,
+      }
+    })
+
+    const streakData: StreakData[] = habits.map(habit => {
+      let streak = 0
+      for (let i = dates.length - 1; i >= 0; i--) {
+        const done = allLogs.some(l => l.habitId === habit.id && l.date === dates[i] && l.completed)
+        if (done) streak++
+        else break
+      }
+      return { habitId: habit.id, name: habit.name, period: habit.period, streak }
+    })
+
+    setDaily(dailyData)
+    setStreaks(streakData)
+    setMounted(true)
   }, [])
 
-  if (loading) {
-    return <div className="text-center py-20 text-gray-400 text-sm">Loading...</div>
-  }
+  if (!mounted) return null
 
   const morningStreaks = streaks.filter(s => s.period === 'MORNING')
   const eveningStreaks = streaks.filter(s => s.period === 'EVENING')
 
   return (
     <div className="space-y-8">
-      {/* Chart */}
       <div>
         <h2 className="text-base font-semibold text-gray-900">Completion Rate — Last 14 Days</h2>
         <p className="text-sm text-gray-500 mt-0.5">Morning vs Evening habits</p>
@@ -49,7 +71,6 @@ export default function InsightsPage() {
         </div>
       </div>
 
-      {/* Streaks */}
       <div>
         <h2 className="text-base font-semibold text-gray-900 mb-4">Current Streaks</h2>
 

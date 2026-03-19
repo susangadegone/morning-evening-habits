@@ -2,20 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { HabitChecklist } from '@/components/HabitChecklist'
-
-interface Habit {
-  id: string
-  name: string
-  period: string
-  sortOrder: number
-}
-
-interface HabitLog {
-  id: string
-  habitId: string
-  date: string
-  completed: boolean
-}
+import { getHabits, getLogs, upsertLog, type Habit, type HabitLog } from '@/lib/storage'
 
 function getToday(): string {
   const d = new Date()
@@ -28,7 +15,7 @@ function getToday(): string {
 export default function HomePage() {
   const [habits, setHabits] = useState<Habit[]>([])
   const [logs, setLogs] = useState<HabitLog[]>([])
-  const [loading, setLoading] = useState(true)
+  const [mounted, setMounted] = useState(false)
 
   const today = getToday()
   const dateLabel = new Date().toLocaleDateString('en-US', {
@@ -38,41 +25,23 @@ export default function HomePage() {
   })
 
   useEffect(() => {
-    async function load() {
-      const [habitsRes, logsRes] = await Promise.all([
-        fetch('/api/habits'),
-        fetch(`/api/logs?date=${today}`),
-      ])
-      setHabits(await habitsRes.json())
-      setLogs(await logsRes.json())
-      setLoading(false)
-    }
-    load()
+    setHabits(getHabits().filter(h => h.active))
+    setLogs(getLogs().filter(l => l.date === today))
+    setMounted(true)
   }, [today])
 
-  async function toggleHabit(habitId: string, completed: boolean) {
-    const updated: HabitLog = await fetch('/api/logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ habitId, date: today, completed }),
-    }).then(r => r.json())
-
-    setLogs(prev => {
-      const exists = prev.find(l => l.habitId === habitId)
-      if (exists) return prev.map(l => l.habitId === habitId ? { ...l, completed } : l)
-      return [...prev, updated]
-    })
+  function toggleHabit(habitId: string, completed: boolean) {
+    upsertLog(habitId, today, completed)
+    setLogs(getLogs().filter(l => l.date === today))
   }
+
+  if (!mounted) return null
 
   const morningHabits = habits.filter(h => h.period === 'MORNING')
   const eveningHabits = habits.filter(h => h.period === 'EVENING')
   const totalHabits = habits.length
   const completedCount = logs.filter(l => l.completed).length
   const progressPct = totalHabits > 0 ? Math.round((completedCount / totalHabits) * 100) : 0
-
-  if (loading) {
-    return <div className="text-center py-20 text-gray-400 text-sm">Loading...</div>
-  }
 
   return (
     <div className="space-y-5">
@@ -91,7 +60,6 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Morning habits */}
       <HabitChecklist
         title="Morning"
         period="MORNING"
@@ -100,7 +68,6 @@ export default function HomePage() {
         onToggle={toggleHabit}
       />
 
-      {/* Evening habits */}
       <HabitChecklist
         title="Evening"
         period="EVENING"
